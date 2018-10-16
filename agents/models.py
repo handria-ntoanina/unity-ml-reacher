@@ -15,7 +15,7 @@ class Actor(nn.Module):
         """
         super().__init__()
         self.seed = torch.manual_seed(seed)
-        hidden_layers_size = [state_size, 128, 64, 32, action_size]
+        hidden_layers_size = [state_size, 64, 32, action_size]
         self.hidden_layers = nn.ModuleList()
         self.hidden_layers.extend([nn.Linear(hidden_layers_size[i], hidden_layers_size[i + 1]) for i in range(len(hidden_layers_size) - 1)])
         self.normalization_layers = nn.ModuleList()
@@ -42,7 +42,7 @@ class Critic(nn.Module):
         """
         super().__init__()
         self.seed = torch.manual_seed(seed)
-        hidden_layers_size = [state_size + action_size, 128, 64, 32, 1]
+        hidden_layers_size = [state_size + action_size, 64, 32, 1]
         self.hidden_layers = nn.ModuleList()
         self.hidden_layers.extend([nn.Linear(hidden_layers_size[i], hidden_layers_size[i + 1]) for i in range(len(hidden_layers_size) - 1)])
         self.normalization_layers = nn.ModuleList()
@@ -50,7 +50,7 @@ class Critic(nn.Module):
     def forward(self, state, action):
         """Build a network that maps state to actions."""
         x = torch.cat((state, action), dim=1)
-        for i in range(1, len(self.hidden_layers)-1):
+        for i in range(len(self.hidden_layers)-1):
             linear = self.hidden_layers[i]
             batch_norm = self.normalization_layers[i]
             x = batch_norm(F.relu(linear(x)))

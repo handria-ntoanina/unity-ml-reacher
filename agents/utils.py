@@ -3,7 +3,17 @@ import random
 import copy
 from collections import namedtuple, deque
 import torch
+import time
 
+# this function is from https://zapier.com/engineering/profiling-python-boss/
+def timefunc(f):
+    def f_timer(*args, **kwargs):
+        start = time.time()
+        result = f(*args, **kwargs)
+        end = time.time()
+        print(f.__name__, 'took', end - start, 'time')
+        return result
+    return f_timer
 
 def soft_update(local_model, target_model, tau):
     """Soft update model parameters.

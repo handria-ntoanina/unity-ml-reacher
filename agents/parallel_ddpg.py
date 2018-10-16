@@ -5,20 +5,19 @@ import torch.nn.functional as F
 import torch.optim as optim
 from collections import deque
 import random
-from agents.utils import soft_update, apply_noise, build_noise
+from agents.utils import soft_update, apply_noise, build_noise, timefunc
 
 device = "cpu"
 class ParallelDDPG():
     """Interacts with and learns from the environment."""
 
     def __init__(self, state_size, action_size, seed, num_agents, memory, ActorNetwork, CriticNetwork, device,
-                BATCH_SIZE = 32,
                 GAMMA = 0.99, 
-                TAU = 0.5, 
+                TAU = 1e-3, 
                 LR_CRITIC = 5e-4,
                 LR_ACTOR = 5e-4, 
                 UPDATE_EVERY = 1,
-                TRANSFER_EVERY = 4,
+                TRANSFER_EVERY = 1,
                 FILE_NAME="parallel_dpg"):
         """Initialize an Agent object.
         
@@ -32,7 +31,6 @@ class ParallelDDPG():
             ActorNetwork: a class inheriting from torch.nn.Module that define the structure of the actor neural network
             CriticNetwork: a class inheriting from torch.nn.Module that define the structure of the critic neural network
             device: cpu or cuda:0 if available
-            BATCH_SIZE: minibatch size
             GAMMA: discount factor
             TAU: for soft update of target parameters
             LR_CRITIC: learning rate of the critics
@@ -65,7 +63,6 @@ class ParallelDDPG():
         self.u_step = 0
         self.t_step = 0
         
-        self.BATCH_SIZE = BATCH_SIZE
         self.GAMMA = GAMMA
         self.TAU = TAU
         self.LR_CRITIC = LR_CRITIC
@@ -89,7 +86,8 @@ class ParallelDDPG():
     
     def reset(self):
         self.noise.reset()
-
+    
+    @timefunc
     def act(self, states, add_noise=True):
         """Returns actions of each actor for given states.
         
@@ -97,7 +95,7 @@ class ParallelDDPG():
         ======
             state (array_like): current states
         """
-        ret = np.array([])
+        ret = None
         
         with torch.no_grad():
             if add_noise:
@@ -108,8 +106,11 @@ class ParallelDDPG():
                     actor_local.eval()
                     # apply a noise to the parameters only for exploration purpose
                     apply_noise(actor_local, noise_sample)
-                    to_add = actor_local(state).cpu().data.numpy().squeeze()
-                    ret = np.concatenate((to_add, ret))
+                    to_add = actor_local(state).cpu().data.numpy()
+                    if ret is None:
+                        ret = to_add
+                    else:
+                        ret = np.concatenate((ret, to_add))
                     # restore the previous parameters otherwise the noise will disturb the acquired knowldege
                     apply_noise(actor_local, -noise_sample)
                     actor_local.train()
@@ -118,30 +119,33 @@ class ParallelDDPG():
                     state = torch.from_numpy(states[i]).float().unsqueeze(0).to(device)
                     actor_local = self.actors_local[i]
                     actor_local.eval()
-                    ret = np.concatenate(self.actor_local(state).cpu().data.numpy(), ret)
+                    if ret is None:
+                        ret = to_add
+                    else:
+                        ret = np.concatenate((ret, to_add))
                     actor_local.train()
-                
-        return np.flip(ret, axis=0)
+        return ret
     
+    @timefunc
     def step(self, states, actions, rewards, next_states, dones):
         # Save experience in replay memory
         for i in range(self.num_agents):
             self.memory.add(states[i], actions[i], rewards[i], next_states[i], dones[i])
-        
         # Learn every UPDATE_EVERY time steps.
         self.t_step = (self.t_step + 1) % self.TRANSFER_EVERY
         self.u_step = (self.u_step + 1) % self.UPDATE_EVERY
         
-        if len(self.memory) > self.BATCH_SIZE and self.u_step == 0:
+        if len(self.memory) > self.memory.batch_size and self.u_step == 0:
             for i in range(self.num_agents):
                 experiences = self.memory.sample()
                 self.learn(experiences, self.actors_local[i], self.actors_optim[i], self.critics_local[i], self.critics_optim[i])
         
-        if len(self.memory) > self.BATCH_SIZE and self.t_step == 0:
+        if len(self.memory) > self.memory.batch_size and self.t_step == 0:
             for i in range(self.num_agents):
-                soft_update(self.actors_local[i], self.critic_target[i], self.TAU)
-                soft_update(self.critics_local[i], self.critic_target[i], self.TAU)
-
+                soft_update(self.actors_local[i], self.actor_target, self.TAU)
+                soft_update(self.critics_local[i], self.critic_target, self.TAU)
+    
+    @timefunc
     def learn(self, experiences, actor_local, actor_optim, critic_local, critic_optim):
         """Update value parameters using given batch of experience tuples.
 
@@ -155,18 +159,19 @@ class ParallelDDPG():
         # the estimation of the next_states value according to the critic_target and actor_target
         next_actions = self.actor_target(next_states)
         targeted_value = rewards + self.GAMMA*self.critic_target(next_states, next_actions)
+        
         current_value = critic_local(states, actions)
         
         # calculate the loss and backprobagate
-        self.critic_optim.zero_grad()
+        critic_optim.zero_grad()
         F.mse_loss(current_value, targeted_value).backward()
-        self.critic_optim.step()
+        critic_optim.step()
         
         # the actor's objective is to increase/decrease its parameters according to the value returned by the critic_local
         # that is achieved by maximizing the return of the critic_local through a gradient ascent
         actions_pred = actor_local(states)
-        self.actor_optim.zero_grad()
+        actor_optim.zero_grad()
         (- critic_local(states, actions_pred).mean()).backward()
-        self.actor_optim.step()
+        actor_optim.step()
 
     
