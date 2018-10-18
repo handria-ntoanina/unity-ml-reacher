@@ -31,17 +31,43 @@ def soft_update(local_model, target_model, tau):
     for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
         target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
 
-def apply_noise(model, noise_sample):
-    start = torch.tensor(0)
-    for param in model.parameters():
-        size = np.array(param.data.size()).prod().item()
-        noise = noise_sample[start:start + size].reshape(param.data.size()).float()
-        param.data.add_(noise)
-        start += size
 
-def build_noise(model, device, seed):
-    size = sum([np.array(param.data.size()).prod() for param in model.parameters()])
-    return OUNoise(size, device, seed)
+class ActionNoise:
+    def __init__(self, size, device, seed, mu=0., theta=0.15, sigma=0.2):
+        self.noise = OUNoise(size, device, seed, mu, theta, sigma)
+        
+    def reset(self):
+        self.noise.reset()
+        
+    def apply(self, model, state):
+        action = model(state).cpu().data.numpy()
+        action += self.noise.sample()
+        return np.clip(action, -1, 1)
+    
+class ParameterNoise:
+    def __init__(self, model, device, seed, mu=0., theta=0.15, sigma=0.2):
+        size = sum([np.array(param.data.size()).prod() for param in model.parameters()])
+        self.noise = OUNoise(size, device, seed)
+        
+    def reset(self):
+        self.noise.reset()
+        
+    def apply(self, model, state):
+        noise_sample = self.noise.sample()
+        # apply a noise to the parameters only for exploration purpose
+        self.apply_noise(model, noise_sample)
+        ret = model(state).cpu().data.numpy()
+        # restore the previous parameters otherwise the noise will disturb the acquired knowldege
+        self.apply_noise(model, -noise_sample)
+        return ret
+    
+    def apply_noise(self, model, noise_sample):
+        start = torch.tensor(0)
+        for param in model.parameters():
+            size = np.array(param.data.size()).prod().item()
+            noise = noise_sample[start:start + size].reshape(param.data.size()).float()
+            param.data.add_(noise)
+            start += size
     
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
