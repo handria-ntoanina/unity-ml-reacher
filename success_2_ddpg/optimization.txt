@@ -1,0 +1,11 @@
+1-Random bootstrap
+2-Dueling Network 
+	S-->Network-->Output1
+	Output1-->Network-->Value
+	Output1+Action-->Network-->Advantage
+	return Value + Advantage
+3-Input Normalization
+	Run random episodes
+	Gather states
+	Find Mu and Sigmoid
+	Use Mu and Sigmoid to normalize all input during learning and testing process

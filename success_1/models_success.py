@@ -20,7 +20,7 @@ class Actor(nn.Module):
         """
         super().__init__()
         self.seed = torch.manual_seed(seed)
-        hidden_layers_size = [state_size, 600, 400, action_size]
+        hidden_layers_size = [state_size, 400, 300 , action_size]
         self.hidden_layers = nn.ModuleList()
         self.hidden_layers.extend([nn.Linear(hidden_layers_size[i], hidden_layers_size[i + 1]) for i in range(len(hidden_layers_size) - 1)])
         self.reset_parameters()
@@ -51,8 +51,8 @@ class Critic(nn.Module):
         """
         super().__init__()
         self.seed = torch.manual_seed(seed)
-        self.insert_action_at = 2
-        hidden_layers_size = [state_size, 600, 400, 200, 1]
+        self.insert_action_at = 1
+        hidden_layers_size = [state_size, 400, 300, 1]
         hidden_layers_size = [[hidden_layers_size[i], hidden_layers_size[i + 1]] for i in range(len(hidden_layers_size) - 1)]
         hidden_layers_size[self.insert_action_at][0] += action_size
         self.hidden_layers = nn.ModuleList()
