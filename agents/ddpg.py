@@ -191,8 +191,6 @@ class DDPG():
         torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
         self.critic_optim.step()
 
-        # compile the values of the critic to optimize the actor 
-
         self.actor_optim.zero_grad()
         actions_pred = self.actor_local(states)
         mean = self.critic_local(states, actions_pred).mean()

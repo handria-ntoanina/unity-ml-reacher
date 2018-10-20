@@ -11,7 +11,7 @@ from agents.ddpg import DDPG
 
 class MultiDDPG():
     """Interacts with and learns from the environment."""
-
+    
     def __init__(self, state_size, action_size, seed, num_agents, memory, ActorNetwork, CriticNetwork, device,
                 BOOTSTRAP_SIZE = 5,
                 GAMMA = 0.99, 
@@ -45,8 +45,10 @@ class MultiDDPG():
             TRANSFER_EVERY: after how many update do we transfer from the online network to the targeted fixed network
             UPDATE_LOOP: Number of loops of learning whenever the agent is learning
             ADD_NOISE_EVERY: how often to add noise to favor exploration
+            WEIGHT_DECAY: Parameter of the Adam Optimizer of the Critic Network
             FILE_NAME: default prefix to the saved model
         """
+        # Instantiate n agent with n network
         self.agents = [DDPG(state_size, action_size, seed, memory, ActorNetwork, CriticNetwork, device, 
                 BOOTSTRAP_SIZE ,
                 GAMMA , 

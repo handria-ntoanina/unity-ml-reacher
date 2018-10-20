@@ -5,16 +5,6 @@ from collections import namedtuple, deque
 import torch
 import time
 
-# this function is from https://zapier.com/engineering/profiling-python-boss/
-def timefunc(f):
-    def f_timer(*args, **kwargs):
-        start = time.time()
-        result = f(*args, **kwargs)
-        end = time.time()
-        print(f.__name__, 'took', end - start, 'time')
-        return result
-    return f_timer
-
 def soft_update(local_model, target_model, tau):
     """Soft update model parameters.
     θ_target = τ*θ_local + (1 - τ)*θ_target
@@ -33,6 +23,7 @@ def soft_update(local_model, target_model, tau):
 
 
 class ActionNoise:
+    """ Noise generator that disturb the output of a network """
     def __init__(self, size, device, seed, mu=0., theta=0.15, sigma=0.2):
         self.noise = OUNoise(size, device, seed, mu, theta, sigma)
         
@@ -45,6 +36,7 @@ class ActionNoise:
         return np.clip(action, -1, 1)
     
 class ParameterNoise:
+    """ Noise generator that disturb the weight of a network and thus its output """
     def __init__(self, model, device, seed, mu=0., theta=0.15, sigma=0.2):
         size = sum([np.array(param.data.size()).prod() for param in model.parameters()])
         self.noise = OUNoise(size, device, seed)

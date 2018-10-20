@@ -10,7 +10,7 @@ from agents.utils import soft_update
 
 class ParallelDDPG():
     """Interacts with and learns from the environment."""
-
+    
     def __init__(self, state_size, action_size, seed, num_agents, memory, ActorNetwork, CriticNetwork, device,
                 BOOTSTRAP_SIZE = 5,
                 GAMMA = 0.99, 
@@ -19,8 +19,8 @@ class ParallelDDPG():
                 LR_ACTOR = 5e-4, 
                 UPDATE_EVERY = 1,
                 TRANSFER_EVERY = 2,
-                ADD_NOISE_EVERY = 5,
                 UPDATE_LOOP = 10,
+                ADD_NOISE_EVERY = 5,
                 WEIGHT_DECAY = 0,
                 FILE_NAME="parallel_dpg"):
         """Initialize an Agent object.
@@ -38,11 +38,13 @@ class ParallelDDPG():
             BOOTSTRAP_SIZE: length of the bootstrap
             GAMMA: discount factor
             TAU: for soft update of target parameters
-            LR_CRITIC: learning rate of the critics
-            LR_ACTOR: learning rate of the actors
+            LR_CRITIC: learning rate of the critic network
+            LR_ACTOR: learning rate of the actor network
             UPDATE_EVERY: how often to update the networks
             TRANSFER_EVERY: after how many update do we transfer from the online network to the targeted fixed network
+            UPDATE_LOOP: number of update loop whenever the networks are being updated
             ADD_NOISE_EVERY: how often to add noise to favor exploration
+            WEIGHT_DECAY: parameter of the Adam Optimizer of the critic network
             FILE_NAME: default prefix to the saved model
         """
         self.seed = random.seed(seed)
@@ -84,6 +86,7 @@ class ParallelDDPG():
         self.ADD_NOISE_EVERY = ADD_NOISE_EVERY
         self.FILE_NAME = FILE_NAME
         
+        # initialize these variables to store the information of the n-previous timestep that are necessary to apply the bootstrap_size
         self.rewards = [deque(maxlen=BOOTSTRAP_SIZE) for i in range(self.num_agents)]
         self.states = [deque(maxlen=BOOTSTRAP_SIZE) for i in range(self.num_agents)]
         self.actions = [deque(maxlen=BOOTSTRAP_SIZE) for i in range(self.num_agents)]
@@ -119,6 +122,7 @@ class ParallelDDPG():
         Params
         ======
             state (array_like): current states
+            add_noise: either alter the decision of the actor network or not. During training, this is necessary to promote the exploration. However, during validation, this is altering the agent and should be deactivated.
         """
         ret = None
         
@@ -176,7 +180,7 @@ class ParallelDDPG():
         ======
             experiences (Tuple[torch.Variable]): tuple of (s, a, r, s', done) tuples
         """
-        # shuffle all memory to disrupt the internal correlation and learn from all of them
+        # sample the memory to disrupt the internal correlation
         states, actions, rewards, next_states, dones = self.memory.sample()
 
         # The critic should estimate the value of the states to be equal to rewards plus
@@ -185,20 +189,21 @@ class ParallelDDPG():
             self.actor_target.eval()
             next_actions = self.actor_target(next_states)
             self.critic_target.eval()
+            # the rewards here was pulled from the memory. Before being registered there, the rewards are already considering the size of the bootstrap with the appropriate discount factor
             targeted_value = rewards + (self.GAMMA**self.BOOTSTRAP_SIZE)*self.critic_target(next_states, next_actions)*(1 - dones)
         current_value = self.critic_local(states, actions)
 
-        # calculate the loss
+        # calculate the loss of the critic network and backpropagate
         self.critic_optim.zero_grad()
         loss = F.mse_loss(current_value, targeted_value)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
         self.critic_optim.step()
 
-        # compile the values of the critic to optimize the actor 
-
+        # optimize the actor by having the critic evaluating the value of the actor's decision
         self.actor_optim.zero_grad()
         actions_pred = self.actor_local(states)
         mean = self.critic_local(states, actions_pred).mean()
+        # during the back propagation, parameters of the actor that led to a bad note from the critic will be demoted, and good parameters that led to good note will be promoted
         (-mean).backward()
         self.actor_optim.step()    
