@@ -20,7 +20,7 @@ class Gaussian(nn.Module):
         soft_update(self.critic, self.critic_target, 1)
         
         # Need to check if this is adjusted during backpropagation or not
-        self.std = nn.Parameter(torch.ones(1, action_size))
+        self.std = torch.ones(1, action_size)
     
     def forward(self, state, action=None):
         """

@@ -28,6 +28,7 @@ class PPO():
         self.GRADIENT_CLIP = GRADIENT_CLIP
         self.EPOCHS=EPOCHS
         self.BATCH_SIZE=BATCH_SIZE
+        self.GAMMA=GAMMA
         self.TAU=TAU
         self.CLIP_EPSILON=CLIP_EPSILON
     
@@ -43,7 +44,7 @@ class PPO():
         states = torch.tensor(states).float().to(self.device)
         ret = []
         actions, log_probs, values = self.network(states)
-        return actions.cpu().detach(), log_probs.cpu().detach(), values.cpu().detach()
+        return actions.cpu().detach().numpy(), log_probs.cpu().detach().numpy(), values.cpu().detach().numpy()
     
     def learn(self, states, actions, log_probs, values, rewards, next_states, dones):
         """
@@ -66,20 +67,20 @@ class PPO():
         values = torch.tensor(values).float().to(self.device)
         rewards = torch.tensor(rewards).float().to(self.device)
         next_states = torch.tensor(next_states).float().to(self.device)
-        dones = torch.tensor(dones).astype(np.uint8).float().to(self.device)
+        dones = torch.tensor(dones).float().to(self.device)
         
         # should the returns be 0 if the next_state is done?
         _, _, returns = self.network(next_states[-1])
         
         # this might be optimized with torch.cumsum
         advantages = []
-        for i in reverse(range(states.shape[0])):
+        for i in reversed(range(states.shape[0])):
             # for Q(s,a) = V(s) + A(s,a)
             # ==> A(s,a) = Q(s,a) - V(s)
             
             returns = rewards[i] + self.GAMMA*returns*(1-dones)
             advantages.append((returns - values[i]).detach())
-        advantages = torch.cat(reverse(advantages), dim=0)
+        advantages = torch.cat(reversed(advantages), dim=0)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
         # prepare states, actions, returns,
         for _ in range(self.EPOCHS):
