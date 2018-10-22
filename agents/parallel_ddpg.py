@@ -203,6 +203,8 @@ class ParallelDDPG():
         # optimize the actor by having the critic evaluating the value of the actor's decision
         self.actor_optim.zero_grad()
         actions_pred = self.actor_local(states)
+        # There might be a bug/optimization here. Instead of the mean accross all dimension, may be it should be the mean for each element of the batch
+        # .mean(0)
         mean = self.critic_local(states, actions_pred).mean()
         # during the back propagation, parameters of the actor that led to a bad note from the critic will be demoted, and good parameters that led to good note will be promoted
         (-mean).backward()
