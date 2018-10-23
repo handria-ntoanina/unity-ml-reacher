@@ -18,7 +18,8 @@ class PPO():
                  BATCH_SIZE=32,
                 GAMMA=0.99,
                 TAU=1e-3,
-                CLIP_EPSILON=1e-1):
+                CLIP_EPSILON=1e-1,
+                USE_CRITIC_TARGET=True):
         self.seed = random.seed(seed)
         self.num_agents = num_agents
         self.device = device
@@ -31,12 +32,13 @@ class PPO():
         self.GAMMA=GAMMA
         self.TAU=TAU
         self.CLIP_EPSILON=CLIP_EPSILON
+        self.USE_CRITIC_TARGET=USE_CRITIC_TARGET
     
     def save(self):
-        torch.save(self.critic_local.state_dict(),"ppo.pth")
+        torch.save(self.network.state_dict(),"ppo.pth")
      
     def load(self, path):
-        self.critic_local.load_state_dict(torch.load(path))
+        self.network.load_state_dict(torch.load(path))
     
     def act(self, states):
         """ 
@@ -74,19 +76,23 @@ class PPO():
         
         # this might be optimized with torch.cumsum
         advantages = []
+        returns_array = []
         for i in reversed(range(states.shape[0])):
             # for Q(s,a) = V(s) + A(s,a)
             # ==> A(s,a) = Q(s,a) - V(s)
             
-            returns = rewards[i] + self.GAMMA*returns*(1-dones)
+            returns = rewards[i] + self.GAMMA*returns*(1-dones[i])
             advantages.append((returns - values[i]).detach())
-        advantages = torch.cat(reversed(advantages), dim=0)
+            returns_array.append(returns.detach())
+            
+        returns_array = torch.cat(returns_array[::-1], dim=0).unsqueeze(dim=2)
+        advantages = torch.cat(advantages[::-1], dim=0).unsqueeze(dim=2)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
         # prepare states, actions, returns,
-        for _ in range(self.EPOCHS):
+        for epoch in range(self.EPOCHS):
             # Shuffle the indices
             for indices in self.batch_indices(len(states), self.BATCH_SIZE):
-                idx = tensor(indices).long()
+                idx = torch.tensor(indices).long()
                 sampled_states = states[idx]
                 sampled_actions = actions[idx]
                 sampled_next_states = next_states[idx]
@@ -94,9 +100,10 @@ class PPO():
                 sampled_dones = dones[idx]                
                 sampled_log_probs = log_probs[idx]
                 sampled_advantages = advantages[idx]
+                sampled_returns = returns_array[idx]
                 
                 # find out how likely the new network would have chosen the sampled_actions
-                _, new_log_probs, _ = self.network(sampled_states, sampled_actions)
+                _, new_log_probs, estimated_values = self.network(sampled_states, sampled_actions)
                 ratio = (new_log_probs - sampled_log_probs).exp()
                 clip = torch.clamp(ratio, 1-self.CLIP_EPSILON, 1+self.CLIP_EPSILON)
                 clipped_surrogate = torch.min(ratio*sampled_advantages, clip*sampled_advantages) 
@@ -110,26 +117,33 @@ class PPO():
                 # sampled_targeted_values = returns[indices] # Here returns correspond to r + gamma*r1 + r2*gamma**2 + .... + V(last_state)*gamma**n
                 # in our case, it would be the normal TD as follow were V' is a copy of V which is updated through soft_update from V to V'
                 # V(s)=r + gamma*V'(s')
-                _, _, sampled_next_values = self.network.critic_target(sampled_next_states, None)
-                sampled_targeted_values = rewards + self.GAMMA*sampled_next_states*(1-sampled_dones)
                 
-                # Ask the critic about the values of these states
-                _, _, estimated_values = self.network(sampled_states, sampled_actions)
-                value_loss = F.mse_loss(estimated_values, sampled_targeted_values)
+                # IMPORTANT ----------
+                # Instead of this estimation by the target, use cumulated return per timesteps
+                if self.USE_CRITIC_TARGET:
+                    sampled_next_values = self.network.critic_target(sampled_next_states).squeeze(dim=2)
+                    sampled_targeted_values = sampled_rewards + self.GAMMA * sampled_next_values * (1-sampled_dones)
+                    # Ask the critic about the values of these states
+                    estimated_values.squeeze_(dim=2)
+                    value_loss = F.mse_loss(estimated_values, sampled_targeted_values)
+                else:
+                    value_loss = F.mse_loss(estimated_values, sampled_returns)
                 self.optim.zero_grad()
                 (policy_loss + value_loss).backward()
-                torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), self.GRADIENT_CLIP)
+                torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.GRADIENT_CLIP)
                 self.optim.step()
-                soft_update(self.network.critic, self.network.critic_target,self.TAU)
-                
-                del idx, sampled_states, sampled_actions, sampled_next_states
+                if self.USE_CRITIC_TARGET:
+                    soft_update(self.network.critic, self.network.critic_target,self.TAU)
+                    del sampled_next_states, sampled_targeted_values
+                del sampled_returns
+                del idx, sampled_states, sampled_actions
                 del sampled_rewards, sampled_dones, sampled_log_probs, sampled_advantages
-                del new_log_probs, ratio, clip, clipped_surrogate, estimated_values, clipped_surrogate, policy_loss, value_loss
+                del new_log_probs, ratio, clip, clipped_surrogate, estimated_values, policy_loss, value_loss
         del states, actions, log_probs, values, rewards, next_states, dones, returns
     
     def batch_indices(self, length, batch_size):
         indices = np.arange(length)
-        np.random.shuffler(indices)
+        np.random.shuffle(indices)
         for i in range(1 + length // batch_size):
             start = batch_size*i
             end = start + batch_size

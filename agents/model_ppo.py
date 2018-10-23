@@ -14,9 +14,9 @@ class Gaussian(nn.Module):
     def __init__(self, state_size, action_size, seed):
         super().__init__()
         self.seed = torch.manual_seed(seed)
-        self.actor = FullyConnected([state_size, 64, 64, action_size], seed)
-        self.critic = FullyConnected([state_size, 64, 64, 1], seed)
-        self.critic_target = FullyConnected([state_size, 64, 64, 1], seed)
+        self.actor = FullyConnected([state_size, 128, 128, action_size], seed)
+        self.critic = FullyConnected([state_size, 128, 128, 1], seed)
+        self.critic_target = FullyConnected([state_size, 128, 128, 1], seed)
         soft_update(self.critic, self.critic_target, 1)
         
         # Need to check if this is adjusted during backpropagation or not
