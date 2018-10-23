@@ -124,7 +124,7 @@ class PPO():
                     sampled_next_values = self.network.critic_target(sampled_next_states).squeeze(dim=2)
                     sampled_targeted_values = sampled_rewards + self.GAMMA * sampled_next_values * (1-sampled_dones)
                     # Ask the critic about the values of these states
-                    estimated_values.squeeze_(dim=2)
+                    estimated_values = estimated_values.squeeze(dim=2)
                     value_loss = F.mse_loss(estimated_values, sampled_targeted_values)
                 else:
                     value_loss = F.mse_loss(estimated_values, sampled_returns)
