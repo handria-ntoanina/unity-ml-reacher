@@ -19,6 +19,8 @@ class Gaussian(nn.Module):
         self.std = torch.nn.Parameter(torch.ones(1, action_size))
         self.actor = FullyConnected([state_size, 128, 128, action_size], seed, activation=F.relu)
         self.critic = FullyConnected([state_size, 128, 128, 1], seed, activation=F.relu)
+        self.critic_target = FullyConnected([state_size, 128, 128, 1], seed, activation=F.relu)
+        soft_update(self.critic, self.critic_target, 1)
     
     def forward(self, state, action=None):
         """
@@ -33,10 +35,10 @@ class Gaussian(nn.Module):
         mu = self.actor(state)
         dist = torch.distributions.Normal(mu, self.std)
         if action is None:
-            action = dist.sample()
+            action = torch.clamp(dist.sample(), -1, 1)
         log_prob = dist.log_prob(action)
-        log_prob = log_prob.sum(dim=-1, keepdim=True)
-        value = self.critic(state).squeeze()
+        log_prob = log_prob.sum(dim=1, keepdim=True)
+        value = self.critic(state)
         return action, log_prob, value
 
 class FullyConnected(nn.Module):

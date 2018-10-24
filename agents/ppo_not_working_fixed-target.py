@@ -17,8 +17,9 @@ class PPO():
                  EPOCHS=4, 
                  BATCH_SIZE=32,
                 GAMMA=0.99,
-                GAE_TAU=0.95,
-                CLIP_EPSILON=1e-1):
+                TAU=1e-3,
+                CLIP_EPSILON=1e-1,
+                USE_CRITIC_TARGET=True):
         self.seed = random.seed(seed)
         self.num_agents = num_agents
         self.device = device
@@ -28,8 +29,9 @@ class PPO():
         self.EPOCHS=EPOCHS
         self.BATCH_SIZE=BATCH_SIZE
         self.GAMMA=GAMMA
+        self.TAU=TAU
         self.CLIP_EPSILON=CLIP_EPSILON
-        self.GAE_TAU=GAE_TAU
+        self.USE_CRITIC_TARGET=USE_CRITIC_TARGET
     
     def save(self):
         torch.save(self.network.state_dict(),"ppo.pth")
@@ -60,93 +62,87 @@ class PPO():
         Clip Surrogate
             apply a gradient which is always less tha 1+epsilon of the ration
         """
-        states = torch.tensor(states).float().to(self.device).requires_grad_(False)
-        actions = torch.tensor(actions).float().to(self.device).requires_grad_(False)
-        log_probs = torch.tensor(log_probs).float().to(self.device).requires_grad_(False)
-        values = torch.tensor(values).float().to(self.device).requires_grad_(False)
-        rewards = torch.tensor(rewards).float().to(self.device).requires_grad_(False)
-        next_states = torch.tensor(next_states).float().to(self.device).requires_grad_(False)
-        dones = torch.tensor(dones).float().to(self.device).requires_grad_(False)
-        # dones = 1 - dones
+        states = torch.tensor(states).float().to(self.device)
+        actions = torch.tensor(actions).float().to(self.device)
+        log_probs = torch.tensor(log_probs).float().to(self.device)
+        values = torch.tensor(values).float().to(self.device)
+        rewards = torch.tensor(rewards).float().to(self.device)
+        next_states = torch.tensor(next_states).float().to(self.device)
+        dones = torch.tensor(dones).float().to(self.device)
         
         # should the returns be 0 if the next_state is done?
-        with torch.no_grad():
-            _, _, next_value = self.network(next_states[-1])
-            returns = next_value
-
-            advantages = []
-            returns_array = []
-            advantage = torch.tensor(np.zeros((actions.shape[1]))).float()
+        if self.USE_CRITIC_TARGET:
+            returns = self.network.critic_target(next_states[-1])
+        else:
+            returns = self.network.critic(next_states[-1])
+        
+        # this might be optimized with torch.cumsum
+        advantages = []
+        returns_array = []
+        for i in reversed(range(states.shape[0])):
+            # for Q(s,a) = V(s) + A(s,a)
+            # ==> A(s,a) = Q(s,a) - V(s)
             
-            for i in reversed(range(states.shape[0])):
-                # for Q(s,a) = V(s) + A(s,a)
-                # ==> A(s,a) = Q(s,a) - V(s)
-                
-                assert returns.shape == rewards[i].shape
-                assert dones[i].shape == rewards[i].shape
-                returns = rewards[i] + self.GAMMA*returns*(1 - dones[i])
-                assert not returns.requires_grad
-                
-                # advantages.append((returns - values[i]).detach())
-                returns_array.append(returns.detach())
-
-                # according to the implementation of ShangTong and to the paper 
-                # High Dimensional Continuous Control Using Generalized Advantage Estimation from arxiv
-                
-                assert next_value.shape == dones[i].shape
-                td_error = rewards[i] + self.GAMMA * (1 - dones[i]) * next_value - values[i]
-                assert not td_error.requires_grad
-                assert advantage.shape == dones[i].shape
-                assert advantage.shape == td_error.shape
-                next_value = values[i]
-                advantage = advantage * self.GAE_TAU * self.GAMMA * (1 - dones[i]) + td_error
-                assert not advantage.requires_grad
-                advantages.append(advantage)
-
-            del next_value
-               
-            returns_array = [returns_array[i].unsqueeze(0) for i in reversed(range(len(returns_array)))]
-            returns_array = torch.cat(returns_array, dim=0)
-            assert not returns_array.requires_grad
-            advantages = [advantages[i].unsqueeze(0) for i in reversed(range(len(advantages)))]
-            advantages = torch.cat(advantages, dim=0).unsqueeze(-1)
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
-            assert not advantages.requires_grad
+            returns = rewards[i] + self.GAMMA*returns*(1-dones[i])
+            advantages.append((returns - values[i]).detach())
+            returns_array.append(returns.detach())
+            
+        returns_array = torch.cat(returns_array[::-1], dim=0).unsqueeze(dim=2)
+        advantages = torch.cat(advantages[::-1], dim=0).unsqueeze(dim=2)
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
         # prepare states, actions, returns,
         for epoch in range(self.EPOCHS):
             # Shuffle the indices
             for indices in self.batch_indices(len(states), self.BATCH_SIZE):
                 idx = torch.tensor(indices).long()
                 sampled_states = states[idx]
-                sampled_actions = actions[idx]         
+                sampled_actions = actions[idx]
+                sampled_next_states = next_states[idx]
+                sampled_rewards = rewards[idx]
+                sampled_dones = dones[idx]                
                 sampled_log_probs = log_probs[idx]
                 sampled_advantages = advantages[idx]
                 sampled_returns = returns_array[idx]
                 
                 # find out how likely the new network would have chosen the sampled_actions
                 _, new_log_probs, estimated_values = self.network(sampled_states, sampled_actions)
-            
-                assert new_log_probs.shape == sampled_log_probs.shape
-                assert sampled_advantages.shape == sampled_log_probs.shape
                 ratio = (new_log_probs - sampled_log_probs).exp()
                 clip = torch.clamp(ratio, 1-self.CLIP_EPSILON, 1+self.CLIP_EPSILON)
                 clipped_surrogate = torch.min(ratio*sampled_advantages, clip*sampled_advantages) 
-
+                # the previous line is different from torch.min(ratio, clip)*sampled_advantages when sampled_advantages are negative
+                
+                # Udacity on PPO is having an entropy about left/right action that may be useful here
+                # Should the mean be mean() Udacity since the rewards are normalized or mean(0) ShangTong?
                 policy_loss = -clipped_surrogate.mean()
-                assert estimated_values.shape == sampled_returns.shape
-                assert not sampled_returns.requires_grad
-                # value_loss = 0.5*(sampled_returns - estimated_values).pow(2).mean()
-                value_loss = F.mse_loss(estimated_values, sampled_returns)
+                
+                # In ShangTong's implementation, the targeted value is the cumulated rewards which is in fact another form of n-step bootstrap
+                # sampled_targeted_values = returns[indices] # Here returns correspond to r + gamma*r1 + r2*gamma**2 + .... + V(last_state)*gamma**n
+                # in our case, it would be the normal TD as follow were V' is a copy of V which is updated through soft_update from V to V'
+                # V(s)=r + gamma*V'(s')
+                
+                # IMPORTANT ----------
+                # Instead of this estimation by the target, use cumulated return per timesteps
+                if self.USE_CRITIC_TARGET:
+                    sampled_next_values = self.network.critic_target(sampled_next_states).squeeze(dim=2)
+                    sampled_targeted_values = sampled_rewards + self.GAMMA * sampled_next_values * (1-sampled_dones)
+                    # Ask the critic about the values of these states
+                    estimated_values = estimated_values.squeeze(dim=2)
+                    value_loss = F.mse_loss(estimated_values, sampled_targeted_values)
+                else:
+                    value_loss = F.mse_loss(estimated_values, sampled_returns)
                 self.optim.zero_grad()
                 (policy_loss + value_loss).backward()
                 torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.GRADIENT_CLIP)
                 self.optim.step()
                 
-#                 del sampled_returns
-#                 del idx, sampled_states, sampled_actions
-#                 del sampled_rewards, sampled_dones, sampled_log_probs, sampled_advantages
-#                 del new_log_probs, ratio, clip, clipped_surrogate, estimated_values, policy_loss, value_loss
-#         del states, actions, log_probs, values, rewards, next_states, dones, returns
+                if self.USE_CRITIC_TARGET:
+                    soft_update(self.network.critic, self.network.critic_target,self.TAU)
+                    del sampled_next_states, sampled_targeted_values
+                del sampled_returns
+                del idx, sampled_states, sampled_actions
+                del sampled_rewards, sampled_dones, sampled_log_probs, sampled_advantages
+                del new_log_probs, ratio, clip, clipped_surrogate, estimated_values, policy_loss, value_loss
+        del states, actions, log_probs, values, rewards, next_states, dones, returns
     
     def batch_indices(self, length, batch_size):
         indices = np.arange(length)
