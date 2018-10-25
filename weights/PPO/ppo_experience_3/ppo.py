@@ -11,7 +11,7 @@ from agents.utils import soft_update
 class PPO():
     """Interacts with and learns from the environment."""
     
-    def __init__(self, network, device, 
+    def __init__(self, network, seed, device, num_agents, 
                  LR=1e-4,
                  GRADIENT_CLIP=1, 
                  EPOCHS=4, 
@@ -19,9 +19,11 @@ class PPO():
                 GAMMA=0.99,
                 GAE_TAU=0.95,
                 CLIP_EPSILON=1e-1):
+        self.seed = random.seed(seed)
+        self.num_agents = num_agents
         self.device = device
         self.network = network
-        self.optim = optim.Adam(self.network.parameters(), lr=LR, eps=1e-5)
+        self.optim = optim.Adam(self.network.parameters(), lr=LR)
         self.GRADIENT_CLIP = GRADIENT_CLIP
         self.EPOCHS=EPOCHS
         self.BATCH_SIZE=BATCH_SIZE
@@ -38,8 +40,10 @@ class PPO():
     def act(self, states):
         """ 
         """
-        states = torch.tensor(states).float().to(self.device)
-        actions, log_probs, values = self.network(states)
+        with torch.no_grad():
+            self.network.eval()
+            states = torch.tensor(states).float().to(self.device)
+            actions, log_probs, values = self.network(states)
         return actions.cpu().detach().numpy(), log_probs.cpu().detach().numpy(), values.cpu().detach().numpy()
     
     def learn(self, states, actions, log_probs, values, rewards, next_states, dones):
@@ -57,48 +61,59 @@ class PPO():
         Clip Surrogate
             apply a gradient which is always less tha 1+epsilon of the ration
         """
-        states = torch.tensor(states, device=self.device, dtype=torch.float32)
-        actions = torch.tensor(actions, device=self.device, dtype=torch.float32)
-        log_probs = torch.tensor(log_probs, device=self.device, dtype=torch.float32)
-        values = torch.tensor(values, device=self.device, dtype=torch.float32)
-        rewards = torch.tensor(rewards, device=self.device, dtype=torch.float32)
-        next_states = torch.tensor(next_states, device=self.device, dtype=torch.float32)
-        dones = 1 - torch.tensor(dones, device=self.device, dtype=torch.float32)
+        states = torch.tensor(states).float().to(self.device).requires_grad_(False)
+        actions = torch.tensor(actions).float().to(self.device).requires_grad_(False)
+        log_probs = torch.tensor(log_probs).float().to(self.device).requires_grad_(False)
+        values = torch.tensor(values).float().to(self.device).requires_grad_(False)
+        rewards = torch.tensor(rewards).float().to(self.device).requires_grad_(False)
+        next_states = torch.tensor(next_states).float().to(self.device).requires_grad_(False)
+        dones = torch.tensor(dones).float().to(self.device).requires_grad_(False)
+        dones = 1 - dones
         
         # should the returns be 0 if the next_state is done?
-        _, _, next_value = self.network(next_states[-1])
-        returns = next_value
+        with torch.no_grad():
+            self.network.eval()
+            _, _, next_value = self.network(next_states[-1])
+            returns = next_value
 
-        advantages = [None] * actions.shape[0]
-        returns_array = [None] * actions.shape[0]
-        advantage = torch.tensor(np.zeros((actions.shape[1]))).float()
+            advantages = [None] * actions.shape[0]
+            returns_array = [None] * actions.shape[0]
+            advantage = torch.tensor(np.zeros((actions.shape[1]))).float()
+            
+            for i in reversed(range(states.shape[0])):
+                # for Q(s,a) = V(s) + A(s,a)
+                # ==> A(s,a) = Q(s,a) - V(s)
+                
+                assert returns.shape == rewards[i].shape
+                assert dones[i].shape == rewards[i].shape
+                returns = rewards[i] + self.GAMMA*returns*dones[i]
+                assert not returns.requires_grad
+                
+                # advantages.append((returns - values[i]).detach())
+                returns_array[i]=returns.unsqueeze(0).detach()
 
-        for i in reversed(range(states.shape[0])):
-            # for Q(s,a) = V(s) + A(s,a)
-            # ==> A(s,a) = Q(s,a) - V(s)
-            assert returns.shape == rewards[i].shape
-            assert dones[i].shape == rewards[i].shape
-            returns = rewards[i] + self.GAMMA*returns*dones[i]
+                # according to the implementation of ShangTong and to the paper 
+                # High Dimensional Continuous Control Using Generalized Advantage Estimation from arxiv
+                
+                assert next_value.shape == dones[i].shape
+                td_error = rewards[i] + self.GAMMA * dones[i] * next_value - values[i]
+                assert not td_error.requires_grad
+                assert advantage.shape == dones[i].shape
+                assert advantage.shape == td_error.shape
+                next_value = values[i]
+                advantage = advantage * self.GAE_TAU * self.GAMMA * dones[i] + td_error
+                assert not advantage.requires_grad
+                advantages[i] = advantage.unsqueeze(0).detach()
 
-            # advantages.append((returns - values[i]).detach())
-            returns_array[i]=returns.unsqueeze(0).detach()
-
-            # according to the implementation of ShangTong and to the paper 
-            # High Dimensional Continuous Control Using Generalized Advantage Estimation from arxiv
-            assert next_value.shape == dones[i].shape
-            td_error = rewards[i] + self.GAMMA * dones[i] * next_value - values[i]
-            assert advantage.shape == dones[i].shape
-            assert advantage.shape == td_error.shape
-            next_value = values[i]
-            advantage = advantage * self.GAE_TAU * self.GAMMA * dones[i] + td_error
-            advantages[i] = advantage.unsqueeze(0).detach()
-
-        del next_value
-
-        returns_array = torch.cat(returns_array, dim=0)
-        advantages = torch.cat(advantages, dim=0).unsqueeze(-1)
-        advantages = (advantages - advantages.mean()) / advantages.std()
+            del next_value
+               
+            returns_array = torch.cat(returns_array, dim=0)
+            assert not returns_array.requires_grad
+            advantages = torch.cat(advantages, dim=0).unsqueeze(-1)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
+            assert not advantages.requires_grad
         
+        self.network.train()
         # prepare states, actions, returns,
         for epoch in range(self.EPOCHS):
             # Shuffle the indices
@@ -115,9 +130,9 @@ class PPO():
             
                 assert new_log_probs.shape == sampled_log_probs.shape
                 assert sampled_advantages.shape == sampled_log_probs.shape
-                ratio = (new_log_probs - sampled_log_probs).exp()*sampled_advantages
-                clip = torch.clamp(ratio, 1-self.CLIP_EPSILON, 1+self.CLIP_EPSILON)*sampled_advantages
-                clipped_surrogate = torch.min(ratio, clip) 
+                ratio = (new_log_probs - sampled_log_probs).exp()
+                clip = torch.clamp(ratio, 1-self.CLIP_EPSILON, 1+self.CLIP_EPSILON)
+                clipped_surrogate = torch.min(ratio*sampled_advantages, clip*sampled_advantages) 
 
                 policy_loss = -clipped_surrogate.mean()
                 assert estimated_values.shape == sampled_returns.shape
