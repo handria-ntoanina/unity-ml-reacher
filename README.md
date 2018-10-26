@@ -1,9 +1,13 @@
 # unity-ml-reacher
-This repository contains an implementation of reinforcement learning based on DDPG but using parallel agents to solve the unity reacher environment. It has a 20 double-jointed arms. Each one has to reach a target. Whenever one arm reaches its target, a reward of up to +0.1 is received. This environment is simliar to the [reacher of Unity](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Learning-Environment-Examples.md#reacher).<br/>
+This repository contains an implementation of reinforcement learning based on:
+	* DDPG but using parallel agents to solve the unity reacher environment
+	* Proximal Policy Optimization with a Critic Network as a baseline and with a Generalized Advantage Estimation
+It has a 20 double-jointed arms. Each one has to reach a target. Whenever one arm reaches its target, a reward of up to +0.1 is received. This environment is simliar to the [reacher of Unity](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Learning-Environment-Examples.md#reacher).<br/>
 The action space is continuous [-1.0, +1.0] and consists of 4 values for 4 torques to be applied to the two joints. <br/>
 `The environment is considered as solved if the average score of the 20 agents is +30 for 100 consecutive episodes.`<br/>
 A video of a trained agent can be found by clicking on the image here below <br/>
-[![Video](https://img.youtube.com/vi/6s2ejba1s_s/0.jpg)](https://www.youtube.com/watch?v=6s2ejba1s_s)
+* DDPG: [![Video](https://img.youtube.com/vi/6s2ejba1s_s/0.jpg)](https://www.youtube.com/watch?v=6s2ejba1s_s)
+* PPO: [![Video](https://img.youtube.com/vi/E0uoV_c21w8/0.jpg)](https://www.youtube.com/watch?v=E0uoV_c21w8)
 ## Content of this repository
 * __report.pdf__: a document that describes the details of  implementation of the DDPG, along with ideas for future work
 * __report-ppo.pdf: a document that describes the details of implementation of the PPO
@@ -20,7 +24,11 @@ A video of a trained agent can be found by clicking on the image here below <br/
 * folder __started_to_converge__: weights of a network that started to converge but slowly
 * folder __weights__: 
 	* weights of the network trained with DDPG that solved this environment. It contains as well the history of the weights.
-	* weights of the Gaussian Actor Critic Network that solved this environment with PPO.
+	* weights of the Gaussian Actor Critic Network that solved this environment with PPO
+* folder __research__:
+	* Cozmo25 customized the source code of ShangTong to solve the reacher using PPO
+	* this folder contains one file all.py that has only the code necessary by the PPO
+	* compare.ipynb to compare the performance between that implementation and the ppo.py of this repository
 * Notebooks
 	* jupyter notebook __Continuous_Control.ipynb__: run this notebook to train the agents using DDPG
 	* jupyter notebook __noise.ipynb__: use this notebook to optimize the hyperparameter of the noise generator to check that its output would not limit the exploration
