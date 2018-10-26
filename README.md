@@ -5,7 +5,8 @@ The action space is continuous [-1.0, +1.0] and consists of 4 values for 4 torqu
 A video of a trained agent can be found by clicking on the image here below <br/>
 [![Video](https://img.youtube.com/vi/6s2ejba1s_s/0.jpg)](https://www.youtube.com/watch?v=6s2ejba1s_s)
 ## Content of this repository
-* __report.pdf__: a document that describes the details of  implementation, along with ideas for future work
+* __report.pdf__: a document that describes the details of  implementation of the DDPG, along with ideas for future work
+* __report-ppo.pdf: a document that describes the details of implementation of the PPO
 * folder __agents__: contains the implementation of
 	* a parallel DDPG using one network shared by all agents
 	* a parallel DDPG with multiple network
@@ -14,11 +15,17 @@ A video of a trained agent can be found by clicking on the image here below <br/
 	* an ActionNoise that disturb the output of the actor network to promote exploration
 	* a ParameterNoise that disturb the weight of the actor network to promote exploration
 	* an Ornstein-Uhlenbeck noise generator
+	* an implementation of a Proximal Policy Optimization
+	* a Gaussian Actor Critic network for the PPO
 * folder __started_to_converge__: weights of a network that started to converge but slowly
-* folder __weights__: weights of the network that solved this environment. It contains as well the history of the weights.
-* jupyter notebook __Continuous_Control.ipynb__: run this notebook to train the agents
-* jupyter notebook __noise.ipynb__: use this notebook to optimize the hyperparameter of the noise generator to check that its output would not limit the exploration
-* jupyter notebook __view.ipynb__: a notebook that can load the different saved network weights and visualize the agents
+* folder __weights__: 
+	* weights of the network trained with DDPG that solved this environment. It contains as well the history of the weights.
+	* weights of the Gaussian Actor Critic Network that solved this environment with PPO.
+* Notebooks
+	* jupyter notebook __Continuous_Control.ipynb__: run this notebook to train the agents using DDPG
+	* jupyter notebook __noise.ipynb__: use this notebook to optimize the hyperparameter of the noise generator to check that its output would not limit the exploration
+	* jupyter notebook __view.ipynb__: a notebook that can load the different saved network weights trained with DDPG and visualize the agents
+	* jupyter notebook __Continuous_Control-PPO.ipynb__: a notebook to train an agent using PPO and then to view the trained agent
 ## Requirements
 To run the codes, follow the next steps:
 * Create a new environment:

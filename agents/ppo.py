@@ -21,7 +21,7 @@ class PPO():
                 CLIP_EPSILON=1e-1):
         self.device = device
         self.network = network
-        self.optim = optim.Adam(self.network.parameters(), lr=LR, eps=1e-5)
+        self.optim = optim.Adam(self.network.parameters(), lr=LR)
         self.GRADIENT_CLIP = GRADIENT_CLIP
         self.EPOCHS=EPOCHS
         self.BATCH_SIZE=BATCH_SIZE
@@ -57,13 +57,13 @@ class PPO():
         Clip Surrogate
             apply a gradient which is always less tha 1+epsilon of the ration
         """
-        states = torch.tensor(states, device=self.device, dtype=torch.float32)
-        actions = torch.tensor(actions, device=self.device, dtype=torch.float32)
-        log_probs = torch.tensor(log_probs, device=self.device, dtype=torch.float32)
-        values = torch.tensor(values, device=self.device, dtype=torch.float32)
-        rewards = torch.tensor(rewards, device=self.device, dtype=torch.float32)
-        next_states = torch.tensor(next_states, device=self.device, dtype=torch.float32)
-        dones = 1 - torch.tensor(dones, device=self.device, dtype=torch.float32)
+        states = torch.tensor(states, device=self.device, dtype=torch.float32, requires_grad=False)
+        actions = torch.tensor(actions, device=self.device, dtype=torch.float32, requires_grad=False)
+        log_probs = torch.tensor(log_probs, device=self.device, dtype=torch.float32, requires_grad=False)
+        values = torch.tensor(values, device=self.device, dtype=torch.float32, requires_grad=False)
+        rewards = torch.tensor(rewards, device=self.device, dtype=torch.float32, requires_grad=False)
+        next_states = torch.tensor(next_states, device=self.device, dtype=torch.float32, requires_grad=False)
+        dones = 1 - torch.tensor(dones, device=self.device, dtype=torch.float32, requires_grad=False)
         
         # should the returns be 0 if the next_state is done?
         _, _, next_value = self.network(next_states[-1])
@@ -115,25 +115,22 @@ class PPO():
             
                 assert new_log_probs.shape == sampled_log_probs.shape
                 assert sampled_advantages.shape == sampled_log_probs.shape
-                ratio = (new_log_probs - sampled_log_probs).exp()*sampled_advantages
-                clip = torch.clamp(ratio, 1-self.CLIP_EPSILON, 1+self.CLIP_EPSILON)*sampled_advantages
-                clipped_surrogate = torch.min(ratio, clip) 
+                ratio = (new_log_probs - sampled_log_probs).exp()
+                clip = torch.clamp(ratio, 1-self.CLIP_EPSILON, 1+self.CLIP_EPSILON)
+                clipped_surrogate = torch.min(ratio*sampled_advantages, clip*sampled_advantages) 
 
                 policy_loss = -clipped_surrogate.mean()
                 assert estimated_values.shape == sampled_returns.shape
-                assert not sampled_returns.requires_grad
-                # value_loss = 0.5*(sampled_returns - estimated_values).pow(2).mean()
                 value_loss = F.mse_loss(estimated_values, sampled_returns)
                 self.optim.zero_grad()
                 (policy_loss + value_loss).backward()
                 torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.GRADIENT_CLIP)
                 self.optim.step()
                 
-#                 del sampled_returns
-#                 del idx, sampled_states, sampled_actions
-#                 del sampled_rewards, sampled_dones, sampled_log_probs, sampled_advantages
-#                 del new_log_probs, ratio, clip, clipped_surrogate, estimated_values, policy_loss, value_loss
-#         del states, actions, log_probs, values, rewards, next_states, dones, returns
+                del idx, sampled_states, sampled_actions
+                del sampled_log_probs, sampled_advantages, sampled_returns
+                del new_log_probs, ratio, clip, clipped_surrogate, estimated_values, policy_loss, value_loss
+        del states, actions, log_probs, values, rewards, next_states, dones, returns, advantages, returns_array
     
     def batch_indices(self, length, batch_size):
         indices = np.arange(length)
