@@ -12,13 +12,13 @@ def layer_init(layer, w_scale=1.0):
     return layer
 
 class Gaussian(nn.Module):
-    def __init__(self, state_size, action_size):
+    def __init__(self, state_size, action_size, activation=F.relu):
         super().__init__()
         # This need a change in I:\MyDev\Anaconda3\envs\drlnd\Lib\site-packages\torch\distributions\utils.py
         # at the line 70, check the type using isinstance instead of __class__.__name__
         self.std = torch.nn.Parameter(torch.ones(1, action_size))
-        self.actor = FullyConnected([state_size, 128, 128, action_size], activation=F.relu)
-        self.critic = FullyConnected([state_size, 128, 128, 1], activation=F.relu)
+        self.actor = FullyConnected([state_size, 128, 128, action_size], activation=activation)
+        self.critic = FullyConnected([state_size, 128, 128, 1], activation=activation)
     
     def forward(self, state, action=None):
         """

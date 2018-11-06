@@ -71,7 +71,7 @@ class PPO():
 
         advantages = [None] * actions.shape[0]
         returns_array = [None] * actions.shape[0]
-        advantage = torch.tensor(np.zeros((actions.shape[1]))).float()
+        advantage = torch.tensor(np.zeros((actions.shape[1])), device=self.device, dtype=torch.float32)
 
         for i in reversed(range(states.shape[0])):
             # for Q(s,a) = V(s) + A(s,a)
