@@ -62,6 +62,14 @@ To run the codes, follow the next steps:
 	cd python
 	pip install .
 ```
+* Fix an issue of pytorch 0.4.1 to allow backpropagate the torch.distribution.normal function up to its standard deviation parameter
+    * change the line 69 of Anaconda3\envs\drlnd\Lib\site-packages\torch\distributions\utils.py
+```python
+# old line
+# tensor_idxs = [i for i in range(len(values)) if values[i].__class__.__name__ == 'Tensor']
+# new line
+tensor_idxs = [i for i in range(len(values)) if isinstance(values[i], torch.Tensor)]
+``` 
 * Create an IPython kernel for the `ddpg` environment
 ```bash
 	python -m ipykernel install --user --name ddpg --display-name "ddpg"
