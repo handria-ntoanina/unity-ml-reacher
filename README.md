@@ -10,7 +10,7 @@ A video of a trained agent can be found by clicking on the image here below <br/
 * PPO: [![Video](https://img.youtube.com/vi/E0uoV_c21w8/0.jpg)](https://www.youtube.com/watch?v=E0uoV_c21w8)
 ## Content of this repository
 * __report.pdf__: a document that describes the details of  implementation of the DDPG, along with ideas for future work
-* __report-ppo.pdf: a document that describes the details of implementation of the PPO
+* __report-ppo.pdf__: a document that describes the details of implementation of the PPO
 * folder __agents__: contains the implementation of
 	* a parallel DDPG using one network shared by all agents
 	* a parallel DDPG with multiple network
